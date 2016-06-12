@@ -56,6 +56,7 @@ for i in range(n):
 	duration = ''.join(s for s in duration if ord(s)>31 and ord(s)<126)
 	duration = duration.replace(' ','')
 	duration = duration.replace("months",'')
+	duration = duration.replace("month",'')
 	duration = int(duration)
 	writer2.writerow([amount, cost, ratio, duration, city, country, avg])
 	#retrieve lenders to find the next borrower
