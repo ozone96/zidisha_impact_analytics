@@ -6,22 +6,22 @@ from havenondemand.hodclient import *
 from numpy import mean
 from math import ceil
 import h2o
-import pandas
 from os.path import abspath
 import re
 client = HODClient("00f24d20-81fa-43c4-a670-9b63992cc0e1", version = 'v1')
 h2o.init()
 
-n = 20
+n = 5
 client = HODClient("00f24d20-81fa-43c4-a670-9b63992cc0e1", version = 'v1')
 outfile = open("testfile.csv", "wr")
 writer = csv.writer(outfile)
-writer.writerow(['amount','cost','ratio','duration','city','country','score'])
+writer.writerow(['amount','cost','ratio','duration','city','country'])
 url = "https://www.zidisha.org/lend"
 html = urlopen(url)
 bsobj = soup(html.read())
 mydivs = bsobj.findAll("div", {"class" : "profile-image-container"})
 links = [prof.a.get('href') for prof in mydivs]
+print(links)
 for i in range(n):
 	borrowurl = links[i]
 	html = urlopen(borrowurl)
@@ -44,10 +44,12 @@ for i in range(n):
 	duration = duration.replace(' ','')
 	duration = duration.replace("months",'')
 	duration = int(duration)
-	writer.writerow([amount, cost, ratio, duration, city, country, avg])
+	writer.writerow([amount, cost, ratio, duration, city, country])
 outfile.close()
 
-
+resultsfile = open("results.csv","wr")
+resultwriter = csv.writer(resultsfile)
+resultwriter.writerow(["url", "score"])
 from h2o.estimators.glm import H2OGeneralizedLinearEstimator as glme
 trainingdf = h2o.import_file(path = abspath('./trainingset.csv'))
 trainingdf["city"] = trainingdf["city"].asfactor()
@@ -56,5 +58,9 @@ glm_classifier = glme(family="gaussian")
 glm_classifier.train(x = ['amount','cost','ratio','duration','city','country'],y = 'score', training_frame = trainingdf)
 testdf = h2o.import_file(path = abspath('./testfile.csv'))
 print(testdf)
-result = glm_classifier.predict(testdf)
+result = h2o.as_list(glm_classifier.predict(testdf), use_pandas = False)
+result.pop(0)
+result = [float(r[0]) for r in result]
 print(result)
+for i in range(n):
+	resultwriter.writerow([links[i],result[i]])
