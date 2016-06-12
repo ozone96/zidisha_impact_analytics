@@ -21,15 +21,13 @@ n = 100
 borrowurl = "https://www.zidisha.org/loan/uang-untuk-melanjutkan-pendidikan-ke-universitas"
 for i in range(n):
 	print(borrowurl)
-	print(i)
 	#get sentiment analysis of the comment thread on the project
 	html = urlopen(borrowurl + "/discussion")
-	bsobj = soup(html.read())
+	bsobj = soup(html.read(), 'lxml')
 	mydivs = bsobj.findAll("div", {"class" : "media-body"})
 	comments = [div.p.get_text() for div in mydivs]
 	if len(comments) > 0:
 		comment = " ".join(comments)
-		print(len(comment))
 		if len(comment) > 3000:
 			comment = comment[:3000]
 		analysis = client.get_request({"text" : comment}, HODApps.ANALYZE_SENTIMENT, async=False)
@@ -40,7 +38,7 @@ for i in range(n):
 	qual = int(ceil(avg))
 	writer.writerow([borrowurl, avg, qual])
 	html = urlopen(borrowurl)
-	bsobj = soup(html.read())
+	bsobj = soup(html.read(), 'lxml')
 	#retrieve the other pieces of information about the borrower that we will be using to make predictions
 	strongs = bsobj('strong', text = re.compile(r'\$'))
 	amount = float(strongs[0].get_text().replace("$","").replace(',',''))
@@ -54,7 +52,6 @@ for i in range(n):
 	city = location[0]
 	country = location[1]
 	strongs = bsobj('strong', text = re.compile(r'month'))
-	print(strongs)
 	duration = strongs[0].get_text()
 	duration = ''.join(s for s in duration if ord(s)>31 and ord(s)<126)
 	duration = duration.replace(' ','')
@@ -70,7 +67,7 @@ for i in range(n):
 		choice = mydivs[randint(0,len(mydivs)-1)]
 		lendurl = choice.a.get('href')
 		html = urlopen(lendurl)
-		bsobj = soup(html.read())
+		bsobj = soup(html.read(), 'lxml')
 		mydivs2 = bsobj.findAll("div", {"class" : "lender-thumbnail"})
 		if len(mydivs2) > 0:
 			otherborrowers = mydivs2

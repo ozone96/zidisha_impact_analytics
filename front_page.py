@@ -18,14 +18,13 @@ writer = csv.writer(outfile)
 writer.writerow(['amount','cost','ratio','duration','city','country'])
 url = "https://www.zidisha.org/lend"
 html = urlopen(url)
-bsobj = soup(html.read())
+bsobj = soup(html.read(), 'lxml')
 mydivs = bsobj.findAll("div", {"class" : "profile-image-container"})
 links = [prof.a.get('href') for prof in mydivs]
-print(links)
 for i in range(n):
 	borrowurl = links[i]
 	html = urlopen(borrowurl)
-	bsobj = soup(html.read())
+	bsobj = soup(html.read(), 'lxml')
 	#retrieve the other pieces of information about the borrower that we will be using to make predictions
 	strongs = bsobj('strong', text = re.compile(r'\$'))
 	amount = float(strongs[0].get_text().replace("$","").replace(',',''))
@@ -57,10 +56,8 @@ trainingdf["country"] = trainingdf["city"].asfactor()
 glm_classifier = glme(family="gaussian")
 glm_classifier.train(x = ['amount','cost','ratio','duration','city','country'],y = 'score', training_frame = trainingdf)
 testdf = h2o.import_file(path = abspath('./testfile.csv'))
-print(testdf)
 result = h2o.as_list(glm_classifier.predict(testdf), use_pandas = False)
 result.pop(0)
 result = [float(r[0]) for r in result]
-print(result)
 for i in range(n):
 	resultwriter.writerow([links[i],result[i]])
