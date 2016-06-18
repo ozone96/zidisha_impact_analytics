@@ -102,6 +102,7 @@ def buildmodel(): #trains, saves, and validates a model
 	print('Mean squared error: ' + str(mse))
 
 #TO DO: restrict training and testing data to loans for which the final repayment date has passed
+#TO DO: allow this function to add data to an existing data set instead of writing a new file each time
 def getdata(start, n, m):
 	outfile = open('trainingset.csv','wr')
 	outfile2 = open('testset.csv','wr')
@@ -131,7 +132,7 @@ def trainmodel():
 	trainingdf = h2o.import_file(path = abspath('./trainingset.csv'))
 	trainingdf["city"] = trainingdf["city"].asfactor()
 	trainingdf["country"] = trainingdf["city"].asfactor()
-	glm_classifier = glme(family="gaussian")
+	glm_classifier = glme(family = "gaussian")
 	glm_classifier.train(x = ['amount','cost','ratio','duration','city','country','record','history'],y = 'score', training_frame = trainingdf)
 	savedir = h2o.save_model(glm_classifier, path = curdir, force = True)
 	rename(basename(savedir),"model")
@@ -140,11 +141,41 @@ def evalmodel(df):
 	glm_classifier = h2o.load_model('./model')
 	result = h2o.as_list(glm_classifier.predict(df), use_pandas = False)
 	result.pop(0) #get rid of the column header
-	result = [float(r[0]) for r in result] #the results are each returned as 1-element lists. fix that
+	result = [float(r[0]) for r in result] #the results are each returned as 1-element lists. fix that. 
 	return result
+
+def frontpage(n): #generates scores for the first n loans listed on Zidisha's main page and writes a csv file of them
+	url = "https://www.zidisha.org/lend"
+	html = urlopen(url)
+	bsobj = soup(html.read(), 'lxml')
+	mydivs = bsobj.findAll("div", {"class" : "profile-image-container"})
+	fpfile = open('frontpage.csv','wr')
+	fpwriter = csv.writer(fpfile)
+	fpwriter.writerow(['amount','cost','ratio','duration','city','country','record','history'])
+	links = [prof.a.get('href') for prof in mydivs]
+	titles = []
+	for i in range(n):
+		fpwriter.writerow(profile(links[i]))
+		html = urlopen(links[i])
+		bsobj = soup(html.read(), 'lxml')
+		hits = bsobj.findAll('p',{'class' : 'alpha'})
+		titles.append(hits[0].get_text().replace('  ','').replace('\n',''))
+	fpfile.close()
+	h2o.init()
+	from h2o.estimators.glm import H2OGeneralizedLinearEstimator as glme
+	fpdf = h2o.import_file(path = abspath('./frontpage.csv'))
+	result = evalmodel(fpdf)
+	resultfile = open('results.csv','wr')
+	resultwriter = csv.writer(resultfile)
+	resultwriter.writerow(['project','url','score'])
+	for i in range(n):
+		resultwriter.writerow([titles[i],links[i],result[i]])
+
+
 
 
 starturl = "https://www.zidisha.org/loan/uang-untuk-melanjutkan-pendidikan-ke-universitas"
 n = 100
 getdata(starturl, n, n)
 buildmodel()
+frontpage(10)
