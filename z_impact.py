@@ -9,8 +9,11 @@ import re
 import h2o
 from os.path import abspath, basename
 from os import curdir, rename
+import os
 from scipy.stats import pearsonr
 from math import sqrt
+import json
+
 					#please don't steal my API key...
 client = HODClient("00f24d20-81fa-43c4-a670-9b63992cc0e1", version = 'v1') #open a Haven OnDemand client
 
@@ -46,6 +49,38 @@ def profile(url): #get general information about the loan and borrower
 		history = re.findall(re.compile(r'\(.+\)'), past)[0]
 		history = int(history.replace('(','').replace(')','')) #number of past repayments
 	return [amount, cost, ratio, duration, city, country, record, history]
+
+def profileNLData(surl, trainnum, testnum):
+	n = trainnum + testnum
+	url = surl
+	for x in range(n):
+		dataDict = {}
+		dataDict["url"] = url
+		html = urlopen(url)
+		bsobj = soup(html.read(), 'lxml')
+		bolds = bsobj('strong')
+		name = bolds[0].get_text() # Name is the first bolded item 
+		print name
+		dataDict["name"] = name
+		data = bsobj.find_all("div", { "class" : "loan-section" })
+		for item in data:
+			data2 = item.find_all("span")
+			if data2[0].get_text() == "Story": # If we are on the story part:
+				data3 = item.find_all("div", {"class" : "loan-section-content"})
+				nldata = data3[0].get_text()
+
+		dataDict["nldata"] = nldata
+		print dataDict
+		if not os.path.exists(".profiletext/"):
+		    os.makedirs(".profiletext/")
+
+		f = open(".profiletext/" + name.replace(" ", "_") + ".json", "w")
+		f.write(json.dumps(dataDict))
+		try:
+			url = nextborrower(url) #temporary kludge: if we run into a dead end, just go back to start
+		except AssertionError:
+			url = start
+
 
 #TO DO: for a given loan, take only the comments that fall within the period of that particular loan (currently, comments for the same borrower are all lumped together)
 def getscore(url): #does sentiment analysis on the comment thread for a given loan
@@ -171,11 +206,29 @@ def frontpage(n): #generates scores for the first n loans listed on Zidisha's ma
 	for i in range(n):
 		resultwriter.writerow([titles[i],links[i],result[i]])
 
+# Gets data for GLM
+def executable1():
+	starturl = "https://www.zidisha.org/loan/uang-untuk-melanjutkan-pendidikan-ke-universitas"
+	n = 100
+	getdata(starturl, n, n)
+	buildmodel()
+	frontpage(10)
+
+# Gets data for nl data for RNN. Stores it to .profiletext/{name}.json
+def executable2():
+	starturl = "https://www.zidisha.org/loan/uang-untuk-melanjutkan-pendidikan-ke-universitas"
+	n = 50
+	profileNLData(starturl, n, n)
+	pass
+
+if __name__ == "__main__":
+	executable2()
 
 
 
-starturl = "https://www.zidisha.org/loan/uang-untuk-melanjutkan-pendidikan-ke-universitas"
-n = 100
-getdata(starturl, n, n)
-buildmodel()
-frontpage(10)
+
+
+
+
+
+
