@@ -1,13 +1,13 @@
 from bs4 import BeautifulSoup as soup
 from urllib import urlopen
-from random import randint
+from random import randint, choice
 import csv
 from havenondemand.hodclient import *
 from numpy import mean
 from math import ceil
 import re
 import h2o
-from os.path import abspath, basename
+from os.path import abspath, basename, isfile
 from os import curdir, rename
 import os
 from scipy.stats import pearsonr
@@ -19,7 +19,7 @@ client = HODClient("00f24d20-81fa-43c4-a670-9b63992cc0e1", version = 'v1') #open
 
 def profile(url): #get general information about the loan and borrower
 	html = urlopen(url)
-	bsobj = soup(html.read(), 'lxml')
+	bsobj = soup(html.read(), 'html.parser')
 	strongs = bsobj('strong', text = re.compile(r'\$')) #find bolded text containing $
 	amount = float(strongs[0].get_text().replace("$","").replace(',','')) #loan amount is the first
 	cost = float(strongs[1].get_text().replace("$","").replace(',','')) #loan cost is the second
@@ -48,7 +48,7 @@ def profile(url): #get general information about the loan and borrower
 		record = float(record.replace('%',''))/100. #what proportion of past repayments were on time
 		history = re.findall(re.compile(r'\(.+\)'), past)[0]
 		history = int(history.replace('(','').replace(')','')) #number of past repayments
-	return [amount, cost, ratio, duration, city, country, record, history]
+	return [url, amount, cost, ratio, duration, city, country, record, history]
 
 def profileNLData(surl, trainnum, testnum):
 	n = trainnum + testnum
@@ -57,7 +57,7 @@ def profileNLData(surl, trainnum, testnum):
 		dataDict = {}
 		dataDict["url"] = url
 		html = urlopen(url)
-		bsobj = soup(html.read(), 'lxml')
+		bsobj = soup(html.read(), 'html.parser')
 		bolds = bsobj('strong')
 		name = bolds[0].get_text() # Name is the first bolded item 
 		print name
@@ -85,7 +85,7 @@ def profileNLData(surl, trainnum, testnum):
 #TO DO: for a given loan, take only the comments that fall within the period of that particular loan (currently, comments for the same borrower are all lumped together)
 def getscore(url): #does sentiment analysis on the comment thread for a given loan
 	html = urlopen(url + '/discussion') 
-	bsobj = soup(html.read(), 'lxml')
+	bsobj = soup(html.read(), 'html.parser')
 	mydivs = bsobj.findAll("div", {"class" : "media-body"})
 	comments = [div.p.get_text() for div in mydivs]
 	if len(comments) > 0:
@@ -104,7 +104,7 @@ def getscore(url): #does sentiment analysis on the comment thread for a given lo
 
 def nextborrower(url): #there's no centralized page that lists all past loans on Zidisha, so we need to do some crawling to find the next loan page
 	html = urlopen(url)
-	bsobj = soup(html.read(), 'lxml')
+	bsobj = soup(html.read(), 'html.parser')
 	mydivs = bsobj.findAll("div", {"class" : "lender-thumbnail"}) #get all the lenders who contributed
 	otherborrowers = []
 	tries = 0
@@ -113,7 +113,7 @@ def nextborrower(url): #there's no centralized page that lists all past loans on
 		choice = mydivs[randint(0,len(mydivs)-1)]
 		lendurl = choice.a.get('href')
 		html = urlopen(lendurl)
-		bsobj = soup(html.read(), 'lxml')
+		bsobj = soup(html.read(), 'html.parser')
 		mydivs2 = bsobj.findAll("div", {"class" : "lender-thumbnail"}) #find all the borrowers that lender has given to
 		if len(mydivs2) > 1:
 			otherborrowers = mydivs2
@@ -138,14 +138,29 @@ def buildmodel(): #trains, saves, and validates a model
 
 #TO DO: restrict training and testing data to loans for which the final repayment date has passed
 #TO DO: allow this function to add data to an existing data set instead of writing a new file each time
-def getdata(start, n, m):
-	outfile = open('trainingset.csv','wr')
-	outfile2 = open('testset.csv','wr')
-	writer = csv.writer(outfile)
-	writer2 = csv.writer(outfile2)
-	writer.writerow(['amount','cost','ratio','duration','city','country','record','history','score'])
-	writer2.writerow(['amount','cost','ratio','duration','city','country','record','history','score'])
+def getdata(start, n, m, addn, addm):
 	url = start
+	if addn and isfile("./trainingset.csv"):
+		readfile = open('trainingset.csv', 'r')
+		rd = csv.reader(readfile, delimiter = ',')
+		urls = [row[0] for row in rd]
+		urls.pop(0)
+		url = nextborrower(choice(urls))
+		outfile = open('trainingset.csv', 'a')
+		writer = csv.writer(outfile)
+	else:
+		outfile = open('trainingset.csv','wr')
+		writer = csv.writer(outfile)
+		writer.writerow(['url','amount','cost','ratio','duration','city','country','record','history','score'])
+	if addm and isfile("./testset.csv"):
+		outfile2 = open("testset.csv", 'a')
+		writer2 = csv.writer(outfile2)
+	else:
+		outfile2 = open('testset.csv','wr')
+		writer2 = csv.writer(outfile2)
+		writer2.writerow(['url','amount','cost','ratio','duration','city','country','record','history','score'])
+
+	
 	for i in range(n + m):
 		print(url)
 		score = getscore(url)
@@ -182,7 +197,7 @@ def evalmodel(df):
 def frontpage(n): #generates scores for the first n loans listed on Zidisha's main page and writes a csv file of them
 	url = "https://www.zidisha.org/lend"
 	html = urlopen(url)
-	bsobj = soup(html.read(), 'lxml')
+	bsobj = soup(html.read(), 'html.parser')
 	mydivs = bsobj.findAll("div", {"class" : "profile-image-container"})
 	fpfile = open('frontpage.csv','wr')
 	fpwriter = csv.writer(fpfile)
@@ -192,7 +207,7 @@ def frontpage(n): #generates scores for the first n loans listed on Zidisha's ma
 	for i in range(n):
 		fpwriter.writerow(profile(links[i]))
 		html = urlopen(links[i])
-		bsobj = soup(html.read(), 'lxml')
+		bsobj = soup(html.read(), 'html.parser')
 		hits = bsobj.findAll('p',{'class' : 'alpha'})
 		titles.append(hits[0].get_text().replace('  ','').replace('\n',''))
 	fpfile.close()
@@ -209,10 +224,10 @@ def frontpage(n): #generates scores for the first n loans listed on Zidisha's ma
 # Gets data for GLM
 def executable1():
 	starturl = "https://www.zidisha.org/loan/uang-untuk-melanjutkan-pendidikan-ke-universitas"
-	n = 100
-	getdata(starturl, n, n)
-	buildmodel()
-	frontpage(10)
+	n = 2
+	getdata(starturl, n, n, True, True)
+	#buildmodel()
+	#frontpage(10)
 
 # Gets data for nl data for RNN. Stores it to .profiletext/{name}.json
 def executable2():
@@ -221,14 +236,6 @@ def executable2():
 	profileNLData(starturl, n, n)
 	pass
 
+
 if __name__ == "__main__":
-	executable2()
-
-
-
-
-
-
-
-
-
+	executable1()
