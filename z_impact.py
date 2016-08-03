@@ -48,7 +48,17 @@ def profile(url): #get general information about the loan and borrower
 		record = float(record.replace('%',''))/100. #what proportion of past repayments were on time
 		history = re.findall(re.compile(r'\(.+\)'), past)[0]
 		history = int(history.replace('(','').replace(')','')) #number of past repayments
-	return [url, amount, cost, ratio, duration, city, country, record, history]
+	hits = bsobj.findAll('p',{'class' : 'alpha'})
+	title = hits[0].get_text().replace('  ','').replace('\n','')
+	data = bsobj.find_all("div", { "class" : "loan-section" })
+	for item in data:
+		data2 = item.find_all("span")
+		if data2[0].get_text() == "Story": # If we are on the story part:
+			data3 = item.find_all("div", {"class" : "loan-section-content"})
+			description = data3[0].get_text()
+			description = ''.join(s for s in description if ord(s)>31 and ord(s)<126)
+			description = description.split("Show original")[0].replace('About Me','').replace('\n',' ').replace('My Business','').replace('Loan Proposal','').replace('   ','')
+	return [url, amount, cost, ratio, duration, city, country, record, history, title, description]
 
 def profileNLData(surl, trainnum, testnum):
 	n = trainnum + testnum
@@ -146,19 +156,20 @@ def getdata(start, n, m, addn, addm):
 		urls = [row[0] for row in rd]
 		urls.pop(0)
 		url = nextborrower(choice(urls))
+		readfile.close()
 		outfile = open('trainingset.csv', 'a')
 		writer = csv.writer(outfile)
 	else:
 		outfile = open('trainingset.csv','wr')
 		writer = csv.writer(outfile)
-		writer.writerow(['url','amount','cost','ratio','duration','city','country','record','history','score'])
+		writer.writerow(['url','amount','cost','ratio','duration','city','country','record','history','title','description','score'])
 	if addm and isfile("./testset.csv"):
 		outfile2 = open("testset.csv", 'a')
 		writer2 = csv.writer(outfile2)
 	else:
 		outfile2 = open('testset.csv','wr')
 		writer2 = csv.writer(outfile2)
-		writer2.writerow(['url','amount','cost','ratio','duration','city','country','record','history','score'])
+		writer2.writerow(['url','amount','cost','ratio','duration','city','country','record','history','title', 'description', 'score'])
 
 	
 	for i in range(n + m):
@@ -225,7 +236,7 @@ def frontpage(n): #generates scores for the first n loans listed on Zidisha's ma
 def executable1():
 	starturl = "https://www.zidisha.org/loan/uang-untuk-melanjutkan-pendidikan-ke-universitas"
 	n = 2
-	getdata(starturl, n, n, True, True)
+	getdata(starturl, n, n, False, False)
 	#buildmodel()
 	#frontpage(10)
 
