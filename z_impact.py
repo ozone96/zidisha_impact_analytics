@@ -60,6 +60,7 @@ def profile(url): #get general information about the loan and borrower
 			description = description.split("Show original")[0].replace('About Me','').replace('\n',' ').replace('My Business','').replace('Loan Proposal','').replace('   ','')
 	return [url, amount, cost, ratio, duration, city, country, record, history, title, description]
 
+'''
 def profileNLData(surl, trainnum, testnum):
 	n = trainnum + testnum
 	url = surl
@@ -90,7 +91,7 @@ def profileNLData(surl, trainnum, testnum):
 			url = nextborrower(url) #temporary kludge: if we run into a dead end, just go back to start
 		except AssertionError:
 			url = start
-
+'''
 
 #TO DO: for a given loan, take only the comments that fall within the period of that particular loan (currently, comments for the same borrower are all lumped together)
 def getscore(url): #does sentiment analysis on the comment thread for a given loan
@@ -112,7 +113,7 @@ def getscore(url): #does sentiment analysis on the comment thread for a given lo
 		score = 0.
 	return score
 
-def nextborrower(url): #there's no centralized page that lists all past loans on Zidisha, so we need to do some crawling to find the next loan page
+def nextborrower(url, urls): #there's no centralized page that lists all past loans on Zidisha, so we need to do some crawling to find the next loan page
 	html = urlopen(url)
 	bsobj = soup(html.read(), 'html.parser')
 	mydivs = bsobj.findAll("div", {"class" : "lender-thumbnail"}) #get all the lenders who contributed
@@ -130,6 +131,8 @@ def nextborrower(url): #there's no centralized page that lists all past loans on
 			choice = mydivs2[randint(0,len(mydivs2)-1)]
 			borrowurl = choice.a.get('href')
 		tries += 1
+	if borrowurl in urls:
+		return nextborrower(url, urls) #if this borrower has already been used, recursively go back to the beginning. A bit kludgy. 
 	assert tries < 30
 	return borrowurl
 
@@ -150,12 +153,12 @@ def buildmodel(): #trains, saves, and validates a model
 #TO DO: allow this function to add data to an existing data set instead of writing a new file each time
 def getdata(start, n, m, addn, addm):
 	url = start
+	urls = []
 	if addn and isfile("./trainingset.csv"):
 		readfile = open('trainingset.csv', 'r')
 		rd = csv.reader(readfile, delimiter = ',')
 		urls = [row[0] for row in rd]
 		urls.pop(0)
-		url = nextborrower(choice(urls))
 		readfile.close()
 		outfile = open('trainingset.csv', 'a')
 		writer = csv.writer(outfile)
@@ -164,13 +167,20 @@ def getdata(start, n, m, addn, addm):
 		writer = csv.writer(outfile)
 		writer.writerow(['url','amount','cost','ratio','duration','city','country','record','history','title','description','score'])
 	if addm and isfile("./testset.csv"):
+		readfile = open('testset.csv', 'r')
+		rd = csv.reader(readfile, delimiter = ',')
+		urls2 = [row[0] for row in rd]
+		urls2.pop(0)
+		ursl = urls + urls2
 		outfile2 = open("testset.csv", 'a')
 		writer2 = csv.writer(outfile2)
 	else:
 		outfile2 = open('testset.csv','wr')
 		writer2 = csv.writer(outfile2)
 		writer2.writerow(['url','amount','cost','ratio','duration','city','country','record','history','title', 'description', 'score'])
-
+	urlset = set(urls)
+	if len(urls) > 0:
+		url = nextborrower(choice(urls), urlset)
 	
 	for i in range(n + m):
 		print(url)
@@ -181,7 +191,8 @@ def getdata(start, n, m, addn, addm):
 		else:
 			writer2.writerow(info + [score])
 		try:
-			url = nextborrower(url) #temporary kludge: if we run into a dead end, just go back to start
+			url = nextborrower(url, urlset) #temporary kludge: if we run into a dead end, just go back to start
+			urlset.add(url)
 		except AssertionError:
 			url = start
 	outfile.close()
