@@ -13,6 +13,7 @@ import os
 from scipy.stats import pearsonr
 from math import sqrt
 import json
+from datetime import datetime
 
 					#please don't steal my API key...
 client = HODClient("00f24d20-81fa-43c4-a670-9b63992cc0e1", version = 'v1') #open a Haven OnDemand client
@@ -22,7 +23,11 @@ def profile(url): #get general information about the loan and borrower
 	bsobj = soup(html.read(), 'html.parser')
 	strongs = bsobj('strong', text = re.compile(r'\$')) #find bolded text containing $
 	amount = float(strongs[0].get_text().replace("$","").replace(',','')) #loan amount is the first
-	cost = float(strongs[1].get_text().replace("$","").replace(',','')) #loan cost is the second
+	col = bsobj('div', {'class' : 'col-sm-6'})[2]
+	if "Date Disbursed" in col.get_text(): 
+		cost = float(strongs[1].get_text().replace("$","").replace(',','')) #loan cost is the second for disbursed loans
+	else:
+		cost = float(strongs[2].get_text().replace("$","").replace(',','')) #loan cost is the third for loans currently funding
 	ratio = cost/amount #relative cost may matter as well as absolute cost
 	strongs = bsobj('strong')
 	location = strongs[1].get_text() #the second <strong> is always the location
@@ -50,6 +55,7 @@ def profile(url): #get general information about the loan and borrower
 		history = int(history.replace('(','').replace(')','')) #number of past repayments
 	hits = bsobj.findAll('p',{'class' : 'alpha'})
 	title = hits[0].get_text().replace('  ','').replace('\n','')
+	title = ''.join(s for s in title if ord(s) > 31 and ord(s) < 126)
 	data = bsobj.find_all("div", { "class" : "loan-section" })
 	for item in data:
 		data2 = item.find_all("span")
@@ -97,9 +103,20 @@ def profileNLData(surl, trainnum, testnum):
 def getscore(url): #does sentiment analysis on the comment thread for a given loan
 	html = urlopen(url + '/discussion') 
 	bsobj = soup(html.read(), 'html.parser')
+	html2 = urlopen(url)
+	bsobj2 = soup(html2.read(), 'html.parser')
+	col = bsobj2('div', {'class' : 'col-sm-6'})[2]
+	if "Date Disbursed" in col.get_text(): 
+		cutoff = datetime.strptime(col('strong')[1].get_text(), '%b %d, %Y').date()
+	else:
+		cutoff = datetime.now().date()
 	mydivs = bsobj.findAll("div", {"class" : "media-body"})
 	comments = [div.p.get_text() for div in mydivs]
-	if len(comments) > 0:
+	spans = bsobj('span', {'class' : 'comment-actions'})
+	dates = [datetime.strptime(span.get_text(), '%b %d, %Y').date() for span in spans]
+	beforecomments = [comments[i] for i in range(len(comments)) if dates[i] < cutoff]
+	aftercomments = [comments[i] for i in range(len(comments)) if dates[i] >= cutoff]
+	if len(beforecomments) > 0:
 		comment = " ".join(comments)
 		comment = comment.replace("   ", "") #there is often a lot of extra whitespace. get rid of that. 
 		chunks = re.findall(re.compile(r'.{1,1000}', re.DOTALL),comment) #chunks of text larger than 1-2k characters often don't seem to get processed properly. this is really kludgy, though. 
@@ -108,10 +125,22 @@ def getscore(url): #does sentiment analysis on the comment thread for a given lo
 		for chunk in chunks:
 			analysis = client.get_request({"text" : chunk}, HODApps.ANALYZE_SENTIMENT, async=False) #sentiment analysis of each chunk
 			scores.append(analysis["aggregate"]["score"])
-		score = mean(scores)
+		beforescore = mean(scores)
 	else:
-		score = 0.
-	return score
+		beforescore = 0.
+	if len(aftercomments) > 0:
+		comment = " ".join(comments)
+		comment = comment.replace("   ", "") #there is often a lot of extra whitespace. get rid of that. 
+		chunks = re.findall(re.compile(r'.{1,1000}', re.DOTALL),comment) #chunks of text larger than 1-2k characters often don't seem to get processed properly. this is really kludgy, though. 
+		chunks = [''.join(s for s in chunk if ord(s)>31 and ord(s)<126) for chunk in chunks] #get rid of special and non-ascii characters
+		scores = []
+		for chunk in chunks:
+			analysis = client.get_request({"text" : chunk}, HODApps.ANALYZE_SENTIMENT, async=False) #sentiment analysis of each chunk
+			scores.append(analysis["aggregate"]["score"])
+		afterscore = mean(scores)
+	else:
+		afterscore = 0.
+	return beforescore, afterscore
 
 def nextborrower(url, urls): #there's no centralized page that lists all past loans on Zidisha, so we need to do some crawling to find the next loan page
 	html = urlopen(url)
@@ -133,6 +162,11 @@ def nextborrower(url, urls): #there's no centralized page that lists all past lo
 		tries += 1
 	if borrowurl in urls:
 		return nextborrower(url, urls) #if this borrower has already been used, recursively go back to the beginning. A bit kludgy. 
+	html = urlopen(borrowurl)
+	bsobj = soup(html.read(), 'html.parser')
+	col = bsobj('div', {'class' : 'col-sm-6'})[2].get_text()
+	if "Date Disbursed" not in col: #if the loan hasn't been disbursed yet, don't use it for training or validation
+		return nextborrower(url, urls)
 	assert tries < 30
 	return borrowurl
 
@@ -165,7 +199,7 @@ def getdata(start, n, m, addn, addm):
 	else:
 		outfile = open('trainingset.csv','wr')
 		writer = csv.writer(outfile)
-		writer.writerow(['url','amount','cost','ratio','duration','city','country','record','history','title','description','score'])
+		writer.writerow(['url','amount','cost','ratio','duration','city','country','record','history','title','description','pastscore','score'])
 	if addm and isfile("./testset.csv"):
 		readfile = open('testset.csv', 'r')
 		rd = csv.reader(readfile, delimiter = ',')
@@ -177,19 +211,19 @@ def getdata(start, n, m, addn, addm):
 	else:
 		outfile2 = open('testset.csv','wr')
 		writer2 = csv.writer(outfile2)
-		writer2.writerow(['url','amount','cost','ratio','duration','city','country','record','history','title', 'description', 'score'])
+		writer2.writerow(['url','amount','cost','ratio','duration','city','country','record','history','title', 'description', 'pastscore','score'])
 	urlset = set(urls)
 	if len(urls) > 0:
 		url = nextborrower(choice(urls), urlset)
 	
 	for i in range(n + m):
 		print(url)
-		score = getscore(url)
+		pastscore, score = getscore(url)
 		info = profile(url)
 		if i < n:
-			writer.writerow(info + [score])
+			writer.writerow(info + [pastscore, score])
 		else:
-			writer2.writerow(info + [score])
+			writer2.writerow(info + [pastscore, score])
 		try:
 			url = nextborrower(url, urlset) #temporary kludge: if we run into a dead end, just go back to start
 			urlset.add(url)
@@ -205,7 +239,7 @@ def trainmodel():
 	trainingdf["city"] = trainingdf["city"].asfactor()
 	trainingdf["country"] = trainingdf["city"].asfactor()
 	glm_classifier = glme(family = "gaussian")
-	glm_classifier.train(x = ['amount','cost','ratio','duration','city','country','record','history'],y = 'score', training_frame = trainingdf)
+	glm_classifier.train(x = ['amount','cost','ratio','duration','city','country','record','history','pastscore'],y = 'score', training_frame = trainingdf)
 	savedir = h2o.save_model(glm_classifier, path = curdir, force = True)
 	rename(basename(savedir),"model")
 
@@ -223,11 +257,12 @@ def frontpage(n): #generates scores for the first n loans listed on Zidisha's ma
 	mydivs = bsobj.findAll("div", {"class" : "profile-image-container"})
 	fpfile = open('frontpage.csv','wr')
 	fpwriter = csv.writer(fpfile)
-	fpwriter.writerow(['amount','cost','ratio','duration','city','country','record','history'])
+	fpwriter.writerow(['url','amount','cost','ratio','duration','city','country','record','history','title', 'description', 'pastscore'])
 	links = [prof.a.get('href') for prof in mydivs]
 	titles = []
 	for i in range(n):
-		fpwriter.writerow(profile(links[i]))
+		beforescore, afterscore = getscore(links[i])
+		fpwriter.writerow(profile(links[i]) + [beforescore])
 		html = urlopen(links[i])
 		bsobj = soup(html.read(), 'html.parser')
 		hits = bsobj.findAll('p',{'class' : 'alpha'})
@@ -248,8 +283,8 @@ def executable1():
 	starturl = "https://www.zidisha.org/loan/uang-untuk-melanjutkan-pendidikan-ke-universitas"
 	n = 2
 	getdata(starturl, n, n, False, False)
-	#buildmodel()
-	#frontpage(10)
+	buildmodel()
+	frontpage(5)
 
 # Gets data for nl data for RNN. Stores it to .profiletext/{name}.json
 def executable2():
