@@ -45,14 +45,29 @@ def profile(url): #get general information about the loan and borrower
 	duration = int(duration)
 	strongs = bsobj('strong', text = re.compile(r'\%\n'))
 	if len(strongs) == 0: #if the borrower is new, we give them the benefit of the doubt
-		record = 1.
 		history = 0
+		ontime = 0
+		notontime = 0
 	else:
 		past = strongs[0].get_text()
 		record = re.findall(re.compile(r'..\%|...\%'), past)[0]
 		record = float(record.replace('%',''))/100. #what proportion of past repayments were on time
 		history = re.findall(re.compile(r'\(.+\)'), past)[0]
 		history = int(history.replace('(','').replace(')','')) #number of past repayments
+		ontime = int(record*history)
+		notontime = history - ontime
+	strongs = bsobj('strong', text = re.compile(r'% Positive'))
+	if len(strongs) > 0:
+		feedback = strongs[0].get_text()
+		prop = re.findall(re.compile(r'..\%|...\%'), feedback)[0]
+		prop = float(prop.replace('%', ''))/100.
+		nvotes = re.findall(re.compile(r'\(.+\)'), feedback)[0]
+		nvotes = int(nvotes.replace('(','').replace(')',''))
+		posvote = int(prop*nvotes)
+		negvote = nvotes - posvote
+	else:
+		posvote = 0
+		negvote = 0
 	hits = bsobj.findAll('p',{'class' : 'alpha'})
 	title = hits[0].get_text().replace('  ','').replace('\n','')
 	title = ''.join(s for s in title if ord(s) > 31 and ord(s) < 126)
@@ -64,7 +79,7 @@ def profile(url): #get general information about the loan and borrower
 			description = data3[0].get_text()
 			description = ''.join(s for s in description if ord(s)>31 and ord(s)<126)
 			description = description.split("Show original")[0].replace('About Me','').replace('\n',' ').replace('My Business','').replace('Loan Proposal','').replace('   ','')
-	return [url, amount, cost, ratio, duration, city, country, record, history, title, description]
+	return [url, amount, cost, ratio, duration, city, country, ontime, notontime, history, posvote, negvote, title, description]
 
 '''
 def profileNLData(surl, trainnum, testnum):
@@ -108,8 +123,13 @@ def getscore(url): #does sentiment analysis on the comment thread for a given lo
 	col = bsobj2('div', {'class' : 'col-sm-6'})[2]
 	if "Date Disbursed" in col.get_text(): 
 		cutoff = datetime.strptime(col('strong')[1].get_text(), '%b %d, %Y').date()
+		if len(col('strong', text = re.compile(r'On Time'))) > 0:
+			ontime = 1
+		else:
+			ontime = 0
 	else:
 		cutoff = datetime.now().date()
+		ontime = 1
 	mydivs = bsobj.findAll("div", {"class" : "media-body"})
 	comments = [div.p.get_text() for div in mydivs]
 	spans = bsobj('span', {'class' : 'comment-actions'})
@@ -117,7 +137,7 @@ def getscore(url): #does sentiment analysis on the comment thread for a given lo
 	beforecomments = [comments[i] for i in range(len(comments)) if dates[i] < cutoff]
 	aftercomments = [comments[i] for i in range(len(comments)) if dates[i] >= cutoff]
 	if len(beforecomments) > 0:
-		comment = " ".join(comments)
+		comment = " ".join(beforecomments)
 		comment = comment.replace("   ", "") #there is often a lot of extra whitespace. get rid of that. 
 		chunks = re.findall(re.compile(r'.{1,1000}', re.DOTALL),comment) #chunks of text larger than 1-2k characters often don't seem to get processed properly. this is really kludgy, though. 
 		chunks = [''.join(s for s in chunk if ord(s)>31 and ord(s)<126) for chunk in chunks] #get rid of special and non-ascii characters
@@ -129,7 +149,7 @@ def getscore(url): #does sentiment analysis on the comment thread for a given lo
 	else:
 		beforescore = 0.
 	if len(aftercomments) > 0:
-		comment = " ".join(comments)
+		comment = " ".join(aftercomments)
 		comment = comment.replace("   ", "") #there is often a lot of extra whitespace. get rid of that. 
 		chunks = re.findall(re.compile(r'.{1,1000}', re.DOTALL),comment) #chunks of text larger than 1-2k characters often don't seem to get processed properly. this is really kludgy, though. 
 		chunks = [''.join(s for s in chunk if ord(s)>31 and ord(s)<126) for chunk in chunks] #get rid of special and non-ascii characters
@@ -140,7 +160,7 @@ def getscore(url): #does sentiment analysis on the comment thread for a given lo
 		afterscore = mean(scores)
 	else:
 		afterscore = 0.
-	return beforescore, afterscore
+	return beforescore, afterscore, ontime
 
 def nextborrower(url, urls): #there's no centralized page that lists all past loans on Zidisha, so we need to do some crawling to find the next loan page
 	html = urlopen(url)
@@ -199,7 +219,7 @@ def getdata(start, n, m, addn, addm):
 	else:
 		outfile = open('trainingset.csv','wr')
 		writer = csv.writer(outfile)
-		writer.writerow(['url','amount','cost','ratio','duration','city','country','record','history','title','description','pastscore','score'])
+		writer.writerow(['url','amount','cost','ratio','duration','city','country','ontime','notontime','history','posvote','negvote','title','description','pastscore','score', 'ontime'])
 	if addm and isfile("./testset.csv"):
 		readfile = open('testset.csv', 'r')
 		rd = csv.reader(readfile, delimiter = ',')
@@ -211,19 +231,19 @@ def getdata(start, n, m, addn, addm):
 	else:
 		outfile2 = open('testset.csv','wr')
 		writer2 = csv.writer(outfile2)
-		writer2.writerow(['url','amount','cost','ratio','duration','city','country','record','history','title', 'description', 'pastscore','score'])
+		writer2.writerow(['url','amount','cost','ratio','duration','city','country','ontime','notontime','history','posvote','negvote','title', 'description', 'pastscore','score', 'ontime'])
 	urlset = set(urls)
 	if len(urls) > 0:
 		url = nextborrower(choice(urls), urlset)
 	
 	for i in range(n + m):
 		print(url)
-		pastscore, score = getscore(url)
+		pastscore, score, ontime = getscore(url)
 		info = profile(url)
 		if i < n:
-			writer.writerow(info + [pastscore, score])
+			writer.writerow(info + [pastscore, score, ontime])
 		else:
-			writer2.writerow(info + [pastscore, score])
+			writer2.writerow(info + [pastscore, score, ontime])
 		try:
 			url = nextborrower(url, urlset) #temporary kludge: if we run into a dead end, just go back to start
 			urlset.add(url)
@@ -261,7 +281,7 @@ def frontpage(n): #generates scores for the first n loans listed on Zidisha's ma
 	links = [prof.a.get('href') for prof in mydivs]
 	titles = []
 	for i in range(n):
-		beforescore, afterscore = getscore(links[i])
+		beforescore, afterscore, ontime = getscore(links[i])
 		fpwriter.writerow(profile(links[i]) + [beforescore])
 		html = urlopen(links[i])
 		bsobj = soup(html.read(), 'html.parser')
@@ -283,8 +303,8 @@ def executable1():
 	starturl = "https://www.zidisha.org/loan/uang-untuk-melanjutkan-pendidikan-ke-universitas"
 	n = 2
 	getdata(starturl, n, n, False, False)
-	buildmodel()
-	frontpage(5)
+	#buildmodel()
+	#frontpage(5)
 
 # Gets data for nl data for RNN. Stores it to .profiletext/{name}.json
 def executable2():
