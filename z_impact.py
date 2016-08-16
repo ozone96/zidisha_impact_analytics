@@ -68,6 +68,13 @@ def profile(url): #get general information about the loan and borrower
 	else:
 		posvote = 0
 		negvote = 0
+	div = bsobj('div',{'id' : 'show-calculation'})[0]
+	ps = div('p')
+	fees = 0.
+	for p in ps:
+		if ('lifetime membership' in p.get_text()) or ('opted to pay' in p.get_text()):
+			fee = float(p.strong.get_text().replace('$',''))
+			fees += fee
 	hits = bsobj.findAll('p',{'class' : 'alpha'})
 	title = hits[0].get_text().replace('  ','').replace('\n','')
 	title = ''.join(s for s in title if ord(s) > 31 and ord(s) < 126)
@@ -79,7 +86,7 @@ def profile(url): #get general information about the loan and borrower
 			description = data3[0].get_text()
 			description = ''.join(s for s in description if ord(s)>31 and ord(s)<126)
 			description = description.split("Show original")[0].replace('About Me','').replace('\n',' ').replace('My Business','').replace('Loan Proposal','').replace('   ','')
-	return [url, amount, cost, ratio, duration, city, country, ontime, notontime, history, posvote, negvote, title, description]
+	return [url, amount, cost, ratio, duration, city, country, ontime, notontime, history, posvote, negvote, fees, title, description]
 
 '''
 def profileNLData(surl, trainnum, testnum):
@@ -219,7 +226,7 @@ def getdata(start, n, m, addn, addm):
 	else:
 		outfile = open('trainingset.csv','wr')
 		writer = csv.writer(outfile)
-		writer.writerow(['url','amount','cost','ratio','duration','city','country','ontime','notontime','history','posvote','negvote','title','description','pastscore','score', 'ontime'])
+		writer.writerow(['url','amount','cost','ratio','duration','city','country','ontime','notontime','history','posvote','negvote','fees','title','description','pastscore','score', 'ontime'])
 	if addm and isfile("./testset.csv"):
 		readfile = open('testset.csv', 'r')
 		rd = csv.reader(readfile, delimiter = ',')
@@ -231,7 +238,7 @@ def getdata(start, n, m, addn, addm):
 	else:
 		outfile2 = open('testset.csv','wr')
 		writer2 = csv.writer(outfile2)
-		writer2.writerow(['url','amount','cost','ratio','duration','city','country','ontime','notontime','history','posvote','negvote','title', 'description', 'pastscore','score', 'ontime'])
+		writer2.writerow(['url','amount','cost','ratio','duration','city','country','ontime','notontime','history','posvote','negvote','fees','title', 'description', 'pastscore','score', 'ontime'])
 	urlset = set(urls)
 	if len(urls) > 0:
 		url = nextborrower(choice(urls), urlset)
@@ -259,7 +266,7 @@ def trainmodel():
 	trainingdf["city"] = trainingdf["city"].asfactor()
 	trainingdf["country"] = trainingdf["city"].asfactor()
 	glm_classifier = glme(family = "gaussian")
-	glm_classifier.train(x = ['amount','cost','ratio','duration','city','country','record','history','pastscore'],y = 'score', training_frame = trainingdf)
+	glm_classifier.train(x = ['amount','cost','ratio','duration','city','country','ontime','notontime','history','posvote','negvote','fees','pastscore'],y = 'score', training_frame = trainingdf)
 	savedir = h2o.save_model(glm_classifier, path = curdir, force = True)
 	rename(basename(savedir),"model")
 
@@ -277,7 +284,7 @@ def frontpage(n): #generates scores for the first n loans listed on Zidisha's ma
 	mydivs = bsobj.findAll("div", {"class" : "profile-image-container"})
 	fpfile = open('frontpage.csv','wr')
 	fpwriter = csv.writer(fpfile)
-	fpwriter.writerow(['url','amount','cost','ratio','duration','city','country','record','history','title', 'description', 'pastscore'])
+	fpwriter.writerow(['url','amount','cost','ratio','duration','city','country','ontime','notontime','history','posvote','negvote','fees','title', 'description', 'pastscore'])
 	links = [prof.a.get('href') for prof in mydivs]
 	titles = []
 	for i in range(n):
