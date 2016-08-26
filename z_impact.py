@@ -50,7 +50,7 @@ def profile(url): #get general information about the loan and borrower
 		notontime = 0
 	else:
 		past = strongs[0].get_text()
-		record = re.findall(re.compile(r'..\%|...\%'), past)[0]
+		record = re.findall(re.compile(r'.{1,3}\%'), past)[0]
 		record = float(record.replace('%',''))/100. #what proportion of past repayments were on time
 		history = re.findall(re.compile(r'\(.+\)'), past)[0]
 		history = int(history.replace('(','').replace(')','')) #number of past repayments
@@ -59,7 +59,7 @@ def profile(url): #get general information about the loan and borrower
 	strongs = bsobj('strong', text = re.compile(r'% Positive'))
 	if len(strongs) > 0:
 		feedback = strongs[0].get_text()
-		prop = re.findall(re.compile(r'..\%|...\%'), feedback)[0]
+		prop = re.findall(re.compile(r'.{1,3}\%'), feedback)[0]
 		prop = float(prop.replace('%', ''))/100.
 		nvotes = re.findall(re.compile(r'\(.+\)'), feedback)[0]
 		nvotes = int(nvotes.replace('(','').replace(')',''))
@@ -86,7 +86,8 @@ def profile(url): #get general information about the loan and borrower
 			description = data3[0].get_text()
 			description = ''.join(s for s in description if ord(s)>31 and ord(s)<126)
 			description = description.split("Show original")[0].replace('About Me','').replace('\n',' ').replace('My Business','').replace('Loan Proposal','').replace('   ','')
-	return [url, amount, cost, ratio, duration, city, country, ontime, notontime, history, posvote, negvote, fees, title, description]
+	feeratio = fees/amount
+	return [url, amount, cost, ratio, duration, city, country, ontime, notontime, history, posvote, negvote, fees, feeratio, title, description]
 
 '''
 def profileNLData(surl, trainnum, testnum):
@@ -145,7 +146,7 @@ def getscore(url): #does sentiment analysis on the comment thread for a given lo
 	aftercomments = [comments[i] for i in range(len(comments)) if dates[i] >= cutoff]
 	if len(beforecomments) > 0:
 		comment = " ".join(beforecomments)
-		comment = comment.replace("   ", "") #there is often a lot of extra whitespace. get rid of that. 
+		comment = comment.replace("   ", "").replace("&","and").replace("#","") #there is often a lot of extra whitespace. get rid of that. Also, ampersands and pound signs seem to cause a problem, so toss 'em.
 		chunks = re.findall(re.compile(r'.{1,1000}', re.DOTALL),comment) #chunks of text larger than 1-2k characters often don't seem to get processed properly. this is really kludgy, though. 
 		chunks = [''.join(s for s in chunk if ord(s)>31 and ord(s)<126) for chunk in chunks] #get rid of special and non-ascii characters
 		scores = []
@@ -170,6 +171,8 @@ def getscore(url): #does sentiment analysis on the comment thread for a given lo
 	return beforescore, afterscore, ontime
 
 def nextborrower(url, urls): #there's no centralized page that lists all past loans on Zidisha, so we need to do some crawling to find the next loan page
+	maxtries = 30
+	borrowurl = ""
 	html = urlopen(url)
 	bsobj = soup(html.read(), 'html.parser')
 	mydivs = bsobj.findAll("div", {"class" : "lender-thumbnail"}) #get all the lenders who contributed
@@ -194,7 +197,7 @@ def nextborrower(url, urls): #there's no centralized page that lists all past lo
 	col = bsobj('div', {'class' : 'col-sm-6'})[2].get_text()
 	if "Date Disbursed" not in col: #if the loan hasn't been disbursed yet, don't use it for training or validation
 		return nextborrower(url, urls)
-	assert tries < 30
+	assert tries < maxtries
 	return borrowurl
 
 def buildmodel(): #trains, saves, and validates a model
@@ -226,7 +229,7 @@ def getdata(start, n, m, addn, addm):
 	else:
 		outfile = open('trainingset.csv','wr')
 		writer = csv.writer(outfile)
-		writer.writerow(['url','amount','cost','ratio','duration','city','country','ontime','notontime','history','posvote','negvote','fees','title','description','pastscore','score', 'ontime'])
+		writer.writerow(['url','amount','cost','ratio','duration','city','country','ontime','notontime','history','posvote','negvote','fees','feeratio','title','description','pastscore','score', 'ontime'])
 	if addm and isfile("./testset.csv"):
 		readfile = open('testset.csv', 'r')
 		rd = csv.reader(readfile, delimiter = ',')
@@ -238,7 +241,7 @@ def getdata(start, n, m, addn, addm):
 	else:
 		outfile2 = open('testset.csv','wr')
 		writer2 = csv.writer(outfile2)
-		writer2.writerow(['url','amount','cost','ratio','duration','city','country','ontime','notontime','history','posvote','negvote','fees','title', 'description', 'pastscore','score', 'ontime'])
+		writer2.writerow(['url','amount','cost','ratio','duration','city','country','ontime','notontime','history','posvote','negvote','fees','feeratio','title', 'description', 'pastscore','score', 'ontime'])
 	urlset = set(urls)
 	if len(urls) > 0:
 		url = nextborrower(choice(urls), urlset)
@@ -252,10 +255,10 @@ def getdata(start, n, m, addn, addm):
 		else:
 			writer2.writerow(info + [pastscore, score, ontime])
 		try:
-			url = nextborrower(url, urlset) #temporary kludge: if we run into a dead end, just go back to start
+			url = nextborrower(url, urlset) #temporary kludge: if we run into a dead end, just pick a random url that we've visited before and go from there
 			urlset.add(url)
 		except AssertionError:
-			url = start
+			url = choice(list(urlset))
 	outfile.close()
 	outfile2.close()
 
@@ -266,7 +269,7 @@ def trainmodel():
 	trainingdf["city"] = trainingdf["city"].asfactor()
 	trainingdf["country"] = trainingdf["city"].asfactor()
 	glm_classifier = glme(family = "gaussian")
-	glm_classifier.train(x = ['amount','cost','ratio','duration','city','country','ontime','notontime','history','posvote','negvote','fees','pastscore'],y = 'score', training_frame = trainingdf)
+	glm_classifier.train(x = ['amount','cost','ratio','duration','city','country','ontime','notontime','history','posvote','negvote','fees','feeratio','pastscore'],y = 'score', training_frame = trainingdf)
 	savedir = h2o.save_model(glm_classifier, path = curdir, force = True)
 	rename(basename(savedir),"model")
 
@@ -284,7 +287,7 @@ def frontpage(n): #generates scores for the first n loans listed on Zidisha's ma
 	mydivs = bsobj.findAll("div", {"class" : "profile-image-container"})
 	fpfile = open('frontpage.csv','wr')
 	fpwriter = csv.writer(fpfile)
-	fpwriter.writerow(['url','amount','cost','ratio','duration','city','country','ontime','notontime','history','posvote','negvote','fees','title', 'description', 'pastscore'])
+	fpwriter.writerow(['url','amount','cost','ratio','duration','city','country','ontime','notontime','history','posvote','negvote','fees','feeratio','title', 'description', 'pastscore'])
 	links = [prof.a.get('href') for prof in mydivs]
 	titles = []
 	for i in range(n):
@@ -307,9 +310,10 @@ def frontpage(n): #generates scores for the first n loans listed on Zidisha's ma
 
 # Gets data for GLM
 def executable1():
+	#nextborrower('https://www.zidisha.org/loan/loan-to-expand-my-provision-store', set())
 	starturl = "https://www.zidisha.org/loan/uang-untuk-melanjutkan-pendidikan-ke-universitas"
-	n = 2
-	getdata(starturl, n, n, False, False)
+	n = 1000
+	getdata(starturl, n, n, True, True)
 	#buildmodel()
 	#frontpage(5)
 
