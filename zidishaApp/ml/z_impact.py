@@ -73,7 +73,7 @@ def profile(url): #get general information about the loan and borrower
 	fees = 0.
 	for p in ps:
 		if ('lifetime membership' in p.get_text()) or ('opted to pay' in p.get_text()):
-			fee = float(p.strong.get_text().replace('$',''))
+			fee = float(p.strong.get_text().replace('$','').replace(',',''))
 			fees += fee
 	hits = bsobj.findAll('p',{'class' : 'alpha'})
 	title = hits[0].get_text().replace('  ','').replace('\n','')
@@ -149,7 +149,7 @@ def getscore(url): #does sentiment analysis on the comment thread for a given lo
 		comment = comment.replace("   ", "").replace("&","and").replace("#","") #there is often a lot of extra whitespace. get rid of that. Also, ampersands and pound signs seem to cause a problem, so toss 'em.
 		chunks = re.findall(re.compile(r'.{1,1000}', re.DOTALL),comment) #chunks of text larger than 1-2k characters often don't seem to get processed properly. this is really kludgy, though. 
 		chunks = [''.join(s for s in chunk if ord(s)>31 and ord(s)<126) for chunk in chunks] #get rid of special and non-ascii characters
-		print(chunks)
+		#print(chunks)
 		scores = []
 		for chunk in chunks:
 			analysis = client.get_request({"text" : chunk}, HODApps.ANALYZE_SENTIMENT, async=False) #sentiment analysis of each chunk
@@ -162,7 +162,7 @@ def getscore(url): #does sentiment analysis on the comment thread for a given lo
 		comment = comment.replace("   ", "") #there is often a lot of extra whitespace. get rid of that. 
 		chunks = re.findall(re.compile(r'.{1,1000}', re.DOTALL),comment) #chunks of text larger than 1-2k characters often don't seem to get processed properly. this is really kludgy, though. 
 		chunks = [''.join(s for s in chunk if ord(s)>31 and ord(s)<126) for chunk in chunks] #get rid of special and non-ascii characters
-		print(chunks)
+		#print(chunks)
 		scores = []
 		for chunk in chunks:
 			analysis = client.get_request({"text" : chunk}, HODApps.ANALYZE_SENTIMENT, async=False) #sentiment analysis of each chunk
@@ -313,11 +313,9 @@ def frontpage(n): #generates scores for the first n loans listed on Zidisha's ma
 # Gets data for GLM
 def executable1():
 	#nextborrower('https://www.zidisha.org/loan/loan-to-expand-my-provision-store', set())
-	score = getscore('https://www.zidisha.org/loan/my-intention-is-to-improve-my-water-harvesting-ability-to-do-this-i-intend-to-align-a-dam-liner-on')
-	print(score)
-	#starturl = "https://www.zidisha.org/loan/uang-untuk-melanjutkan-pendidikan-ke-universitas"
-	#n = 1000
-	#getdata(starturl, n, n, True, True)
+	starturl = "https://www.zidisha.org/loan/uang-untuk-melanjutkan-pendidikan-ke-universitas"
+	n = 1000
+	getdata(starturl, n, n, True, True)
 	#buildmodel()
 	#frontpage(5)
 
