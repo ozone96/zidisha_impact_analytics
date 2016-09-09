@@ -1,42 +1,70 @@
 import csv 
-import numpy
-from keras.datasets import imdb
+import numpy as np
 from keras.models import Sequential
-from keras.layers import Dense
 from keras.layers import LSTM
-from keras.layers.embeddings import Embedding
-from keras.preprocessing import sequence
-from theano.tensor.shared_randomstreams import RandomStreams
+import nltk
+import itertools
 
 '''
-Function: RNN
+Function: executable
+Input: None
+Output: None
+Description: Trains a RNN with the zidisha natural language data
+'''
+def executable():
+	storyMap = getStory()
+	X_train, y_train = preprocessDataset(storyMap)
+	TrainRNN(X_train, y_train)
 
 '''
-def RNN():
-	# fix random seed for reproducibility
-	numpy.random.seed(7)
-	srng = RandomStreams(7)
-	# load the dataset but only keep the top n words, zero the rest
-	top_words = 5000
-	test_split = 0.33
-	(X_train, y_train), (X_test, y_test) = imdb.load_data(nb_words=top_words, test_split=test_split)
-	# truncate and pad input sequences
-	max_review_length = 500
-	X_train = sequence.pad_sequences(X_train, maxlen=max_review_length)
-	X_test = sequence.pad_sequences(X_test, maxlen=max_review_length)
-	# create the model
-	embedding_vecor_length = 32
+Function: TrainRNN
+Input: X_train = training features, Y_train = labels
+Output: Trained Model
+Description: A RNN using the Keras library trained on the training dataset.
+'''
+def TrainRNN(X_train, y_train):
 	model = Sequential()
-	model.add(Embedding(top_words, embedding_vecor_length, input_length=max_review_length, dropout=0.2))
-	model.add(LSTM(100, dropout_W=0.2, dropout_U=0.2))
-	model.add(Dense(1, activation='sigmoid'))
-	model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
-	print(model.summary())
-	model.fit(X_train, y_train, nb_epoch=3, batch_size=64)
-	# Final evaluation of the model
-	scores = model.evaluate(X_test, y_test, verbose=0)
-	print("Accuracy: %.2f%%" % (scores[1]*100))
+	model.add(LSTM(3, input_dim=64, input_length=10))
+	model.add(LSTM(5))
+	model.add(LSTM(2))
+	return model
 
+'''
+Function: preprocessDataset
+Input: storyMap from getStory
+Output: Training dataset ready to be passed into neural network
+Description: This function preprocesses natural language data so that it is ready for training
+'''
+def preprocessDataset(storyMap):
+	X_train = []
+	y_train = []
+	for key in storyMap:
+		X_train.append(preprocessParagraph(storyMap[key][0]))
+		y_train.append(np.asarray([storyMap[key][1]]))
+	X_train = np.asarray(X_train)
+	y_train = np.asarray(y_train)	
+	return X_train, y_train
+
+'''
+Function: preprocessParagraph
+Input: A paragraph of text
+Output: Training dataset ready to be passed into neural network
+Description: This function preprocesses natural language data so that it is ready for training. 
+			 It uses preprocessing techniques from wildml.com
+'''
+def preprocessParagraph(paragraph):
+	sentences = nltk.sent_tokenize(paragraph)
+	tokenized_sentences = [nltk.word_tokenize(sent) for sent in sentences]
+	word_freq = nltk.FreqDist(itertools.chain(*tokenized_sentences))
+	vocabulary_size = 5000
+	vocab = word_freq.most_common(vocabulary_size-1)
+	index_to_word = [x[0] for x in vocab]
+	index_to_word.append("unknown_token")
+	word_to_index = dict([(w,i) for i,w in enumerate(index_to_word)])
+	for i, sent in enumerate(tokenized_sentences):
+		tokenized_sentences[i] = [w if w in word_to_index else "unknown_token" for w in sent]
+ 	X_train = np.asarray([[word_to_index[w] for w in sent] for sent in tokenized_sentences])
+	return X_train
 
 '''
 Function: getStory
@@ -53,4 +81,5 @@ def getStory():
 	return storyMap
 
 if __name__ == "__main__":
-	print getStory()
+	executable()
+

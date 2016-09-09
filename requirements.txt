@@ -7,3 +7,4 @@ lxml
 django
 keras
 theano
+nltk
