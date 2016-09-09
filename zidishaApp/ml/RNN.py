@@ -14,7 +14,7 @@ Description: Trains a RNN with the zidisha natural language data
 def executable():
 	storyMap = getStory()
 	X_train, y_train = preprocessDataset(storyMap)
-	TrainRNN(X_train, y_train, 100)
+	model = TrainRNN(X_train, y_train, 100)
 
 '''
 Function: TrainRNN
